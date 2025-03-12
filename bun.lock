@@ -4,6 +4,7 @@
     "": {
       "name": "fuel-predicate-session",
       "dependencies": {
+        "@noble/secp256k1": "^2.2.3",
         "fuels": "^0.99.0",
       },
       "devDependencies": {
@@ -116,6 +117,8 @@
     "@noble/curves": ["@noble/curves@1.6.0", "", { "dependencies": { "@noble/hashes": "1.5.0" } }, "sha512-TlaHRXDehJuRNR9TfZDNQ45mMEd5dwUwmicsafcIX4SsNiqnCHKjE/1alYPd/lDRVhxdhUAlv8uEhMCI5zjIJQ=="],
 
     "@noble/hashes": ["@noble/hashes@1.5.0", "", {}, "sha512-1j6kQFb7QRru7eKN3ZDvRcP13rugwdxZqCjbiAVZfIJwgj2A65UmT4TgARXGlXgnRkORLTDTrO19ZErt7+QXgA=="],
+
+    "@noble/secp256k1": ["@noble/secp256k1@2.2.3", "", {}, "sha512-l7r5oEQym9Us7EAigzg30/PQAvynhMt2uoYtT3t26eGDVm9Yii5mZ5jWSWmZ/oSIR2Et0xfc6DXrG0bZ787V3w=="],
 
     "@pkgjs/parseargs": ["@pkgjs/parseargs@0.11.0", "", {}, "sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg=="],
 

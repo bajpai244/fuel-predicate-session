@@ -1,22 +1,34 @@
 import { test, describe } from 'bun:test';
-import { Provider, Wallet } from 'fuels';
+import { hexlify, InputType, max, ScriptRequest, ScriptTransactionRequest, Wallet } from 'fuels';
 import { launchTestNode } from 'fuels/test-utils';
 import { SessionPredicate } from '../out';
 
 describe('test session predicate', async () => {
-  const testNode = await launchTestNode();
 
   test('test sesssion works', async () => {
+    const testNode = await launchTestNode();
     const provider = testNode.provider;
-    const wallet = testNode.wallets[0];
 
-    const sessionWallet = Wallet.generate();
+    const wallet = testNode.wallets[0];
+    const randomRecepient = Wallet.generate().address;
+
+    const sessionWallet = Wallet.generate({provider});
+    const baseAssetId = await provider.getBaseAssetId();
+
+    // funding session wallet for gas
+    await (await wallet.transfer(sessionWallet.address, 100000)).waitForResult();
+    
     console.log('balance', await wallet.getBalance());
+
+    console.log('sessionWallet', sessionWallet.signer().compressedPublicKey.length);
+    console.log('sessionWallet', sessionWallet.signer().compressedPublicKey);
+
+    const sessionWalletPublicKey= hexlify(new Uint8Array(Buffer.from(sessionWallet.signer().compressedPublicKey.slice(2), 'hex')).slice(1));
 
     const sessionPredicate = new SessionPredicate({
       configurableConstants: {
         MAIN_ADDRESS: wallet.address.toB256(),
-        SESSION_ADDRESS_PUBLIC_KEY: sessionWallet.publicKey,
+        SESSION_ADDRESS_PUBLIC_KEY: sessionWalletPublicKey,
       },
       provider,
     });
@@ -32,6 +44,34 @@ describe('test session predicate', async () => {
 
     const sessionWalletPredicateBalanceAfter = await sessionPredicate.getBalance(); 
     console.log('sessionWalletPredicateBalanceAfter', sessionWalletPredicateBalanceAfter);
+
+    // Step 2: Use the session wallet to send some assets to the random recipient
+    const scriptTransactionRequest = new ScriptTransactionRequest();
+
+    const resources = await sessionPredicate.getResourcesToSpend([{amount, assetId: baseAssetId}]);
+
+    scriptTransactionRequest.addResources(resources);
+    scriptTransactionRequest.addCoinOutput(randomRecepient, amount, baseAssetId);
+
+    console.log("scriptransaction inputs", scriptTransactionRequest.inputs);
+
+    await scriptTransactionRequest.estimateAndFund(sessionWallet);
+
+    console.log("scriptransaction inputs", scriptTransactionRequest.inputs);
+
+    sessionPredicate.predicateData = [0];
+    sessionPredicate.populateTransactionPredicateData(scriptTransactionRequest);
+
+    if(scriptTransactionRequest.inputs[0].type === InputType.Coin) {
+        // scriptTransactionRequest.inputs[0].predicateGasUsed = maxGas;
+    }
+
+
+    // console.log("scriptransaction inputs", scriptTransactionRequest.inputs);
+    const {status} = await (await sessionWallet.sendTransaction(scriptTransactionRequest)).waitForResult();
+
+    console.log("status", status);
+
 
   });
 });

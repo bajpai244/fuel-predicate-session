@@ -10,6 +10,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@noble/secp256k1": "^2.2.3",
     "fuels": "^0.99.0"
   },
   "scripts": {
