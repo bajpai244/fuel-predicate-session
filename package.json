@@ -11,5 +11,8 @@
   },
   "dependencies": {
     "fuels": "^0.99.0"
+  },
+  "scripts": {
+    "fmt": "prettier --write \"./**/*.{js,ts,jsx,tsx,json,md}\""
   }
 }

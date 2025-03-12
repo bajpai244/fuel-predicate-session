@@ -1,9 +1,7 @@
 import { createConfig } from 'fuels';
 
 export default createConfig({
-  predicates: [
-        'session-predicate',
-  ],
+  predicates: ['session-predicate'],
   output: './out',
 });
 
