@@ -1,10 +1,16 @@
 import { test, describe } from 'bun:test';
-import { B512Coder, hexlify, InputType, keccak256, max, ScriptRequest, ScriptTransactionRequest, Wallet } from 'fuels';
+import {
+  hexlify,
+  keccak256,
+  ScriptTransactionRequest,
+  Wallet,
+} from 'fuels';
 import { launchTestNode } from 'fuels/test-utils';
 import { SessionPredicate } from '../out';
+import * as ed from "@noble/ed25519"
+import { bytesToHex } from '@noble/hashes/utils';
 
 describe('test session predicate', async () => {
-
   test('test sesssion works', async () => {
     const testNode = await launchTestNode();
     const provider = testNode.provider;
@@ -12,73 +18,126 @@ describe('test session predicate', async () => {
     const wallet = testNode.wallets[0];
     const randomRecepient = Wallet.generate().address;
 
-    const sessionWallet = Wallet.generate({provider});
     const baseAssetId = await provider.getBaseAssetId();
 
-    // funding session wallet for gas
-    await (await wallet.transfer(sessionWallet.address, 100000)).waitForResult();
-    
-    console.log('balance', await wallet.getBalance());
+    const sessionPrivateKey = `0x${bytesToHex(ed.utils.randomPrivateKey())}`;
+    const sessionPublicKey = `0x${bytesToHex(await ed.getPublicKeyAsync(sessionPrivateKey.slice(2)))}`;
 
-    console.log('sessionWallet', sessionWallet.signer().compressedPublicKey.length);
-    console.log('sessionWallet', sessionWallet.signer().compressedPublicKey);
-
-    // const sessionWalletPublicKey= hexlify(new Uint8Array(Buffer.from(sessionWallet.signer().compressedPublicKey.slice(2), 'hex')).slice(1));
+    console.log('sessionPrivateKey', sessionPrivateKey);
+    console.log('sessionPublicKey', sessionPublicKey);
 
     const sessionPredicate = new SessionPredicate({
       configurableConstants: {
         MAIN_ADDRESS: wallet.address.toB256(),
-        SESSION_ADDRESS_PUBLIC_KEY: sessionWallet.publicKey,
+        SESSION_ADDRESS_PUBLIC_KEY: sessionPublicKey,
       },
       data: [0],
       provider,
     });
 
     const sessionPredicateAddress = sessionPredicate.address;
-    const amount = 10;
+    const amount = 133993000;
 
     const sessionPredicateBalanceBefore = await sessionPredicate.getBalance();
     console.log('sessionPredicateBalanceBefore', sessionPredicateBalanceBefore);
 
     // Step 1: Send some assets to the session predicate
-    await (await wallet.transfer(sessionPredicateAddress, amount)).waitForResult();
+    await (
+      await wallet.transfer(sessionPredicateAddress, amount)
+    ).waitForResult();
 
-    const sessionWalletPredicateBalanceAfter = await sessionPredicate.getBalance(); 
-    console.log('sessionWalletPredicateBalanceAfter', sessionWalletPredicateBalanceAfter);
+    const sessionWalletPredicateBalanceAfter =
+      await sessionPredicate.getBalance();
+    console.log(
+      'sessionWalletPredicateBalanceAfter',
+      sessionWalletPredicateBalanceAfter
+    );
 
     // Step 2: Use the session wallet to send some assets to the random recipient
     const scriptTransactionRequest = new ScriptTransactionRequest();
 
-    const resources = await sessionPredicate.getResourcesToSpend([{amount, assetId: baseAssetId}]);
+    const resources = await sessionPredicate.getResourcesToSpend([
+      { amount, assetId: baseAssetId },
+    ]);
 
     scriptTransactionRequest.addResources(resources);
-    scriptTransactionRequest.addCoinOutput(randomRecepient, amount, baseAssetId);
+    scriptTransactionRequest.addChangeOutput(
+      randomRecepient,
+      baseAssetId
+    );
 
-    const message = keccak256(new Uint8Array([0,1,2]));
-    const messageHex = hexlify(message);
+    // const message = keccak256(new Uint8Array([0, 1, 2]));
+    // const messageHex = bytesToHex(message);
 
-    console.log('message hex', messageHex);
-    console.log('sign', await sessionWallet.signMessage(messageHex))
+    const txId = scriptTransactionRequest.getTransactionId(await provider.getChainId());
 
-    scriptTransactionRequest.addWitness(await sessionWallet.signTransaction(scriptTransactionRequest));
+    console.log('txId', txId);
 
-    console.log("scriptransaction inputs", scriptTransactionRequest.inputs);
+    // console.log('message hex', messageHex);
+    // const signature = bytesToHex(await ed.signAsync(messageHex, sessionPrivateKey.slice(2)));
+    let signature = bytesToHex(await ed.signAsync(txId.slice(2), sessionPrivateKey.slice(2)));
 
-    await scriptTransactionRequest.estimateAndFund(sessionWallet);
+    console.log('sign', signature);
 
-    console.log("scriptransaction inputs", scriptTransactionRequest.inputs);
+    // scriptTransactionRequest.addWitness(await sessionWallet.signTransaction(scriptTransactionRequest));
+    scriptTransactionRequest.addWitness(
+      `0x${signature}`
+    );
 
-    sessionPredicate.predicateData = [0];
-    sessionPredicate.populateTransactionPredicateData(scriptTransactionRequest);
+    const {gasPrice, gasLimit, maxFee, minFee} = await provider.estimateTxGasAndFee({transactionRequest: scriptTransactionRequest});
+    scriptTransactionRequest.gasLimit = gasLimit;
+    scriptTransactionRequest.maxFee = maxFee.mul(2);
 
-    // scriptTransactionRequest.witnesses = [];
+    await provider.estimatePredicates(scriptTransactionRequest);
 
-    console.log('recepient balance before:', await provider.getBalance(randomRecepient, baseAssetId));
+    // change the witness data
+    const witnessIndex = scriptTransactionRequest.witnesses.findIndex((w) => {
+         return hexlify(w) === `0x${signature}`;
+    });
+    if(witnessIndex === -1) {
+      throw new Error('Target witness not found');
+    }
 
-    const {status} = await (await sessionWallet.sendTransaction(scriptTransactionRequest)).waitForResult();
+    signature = bytesToHex(await ed.signAsync(scriptTransactionRequest.getTransactionId(await provider.getChainId()).slice(2), sessionPrivateKey.slice(2)));
+    scriptTransactionRequest.witnesses[witnessIndex] = `0x${signature}`;
 
-    console.log('recepient balance after:', await provider.getBalance(randomRecepient, baseAssetId));
+    console.log('inputs', scriptTransactionRequest.inputs[0]);
+    // return;
 
-    console.log("status", status);
+    // sessionPredicate.predicateData = [witnessIndex];
+    // console.log(scriptTransactionRequest.inputs)
+    // sessionPredicate.populateTransactionPredicateData(scriptTransactionRequest);
+
+    // const r= await provider.estimatePredicates(scriptTransactionRequest);
+    // console.log(r.inputs)
+
+    console.log(
+      'recepient balance before:',
+      await provider.getBalance(randomRecepient, baseAssetId)
+    );
+
+    const {status, transaction, id} = await (await provider.sendTransaction(scriptTransactionRequest)).waitForResult();
+
+    console.log('transaction witnesses', transaction.witnesses);
+    console.log('transaction id', id);
+
+    console.log(
+      'recepient balance after:',
+      await provider.getBalance(randomRecepient, baseAssetId)
+    );
+
+    console.log('status', status);
+
+    // const privKey = bytesToHex( ed.utils.randomPrivateKey());
+    // console.log('privKey', privKey);
+    // const pubKey = bytesToHex(await ed.getPublicKeyAsync(privKey)); // Sync methods below
+    // console.log('pubKey', pubKey);
+
+    // console.log('messageHex', messageHex);
+
+    // const signature2 = bytesToHex(await ed.signAsync(messageHex, privKey));
+    // console.log('signature', signature2);
+    // const isValid = await ed.verifyAsync(signature, messageHex , pubKey);
+    // console.log('verified', isValid);
   });
 });
